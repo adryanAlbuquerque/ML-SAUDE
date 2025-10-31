@@ -1,154 +1,112 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from sklearn.datasets import load_breast_cancer
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.cluster import KMeans
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_absolute_error
 
-# -----------------------------------------------
-# TÍTULO E INTRODUÇÃO
-# -----------------------------------------------
-st.title("Machine Learning Aplicado à Saúde - Câncer de Mama")
+# -------------------------
+# Título e descrição do app
+# -------------------------
+st.title("🩺 Análise de COVID-19 no Brasil")
 st.markdown("""
-Este aplicativo demonstra o uso de **técnicas de aprendizado de máquina supervisionadas e não supervisionadas**
-em um conjunto de dados reais sobre **câncer de mama**.
+Este aplicativo demonstra o uso de **Machine Learning aplicado à Saúde**, com foco na **COVID-19 no Brasil**.
 
-O objetivo é mostrar como é possível **coletar, tratar, modelar e interpretar dados médicos**
-de forma acessível e visual.
+Aqui você pode:
+- Explorar os dados oficiais por estado e região;
+- Visualizar gráficos de casos e mortes;
+- Realizar uma análise de agrupamento (não supervisionada);
+- Treinar um modelo simples de regressão (supervisionada) para prever casos.
 """)
 
-# -----------------------------------------------
-# CARREGAR O DATASET
-# -----------------------------------------------
-data = load_breast_cancer()
-X = pd.DataFrame(data.data, columns=data.feature_names)
-y = pd.Series(data.target)
+# -------------------------
+# Carregar dados
+# -------------------------
+@st.cache_data
+def carregar_dados():
+    url = "https://raw.githubusercontent.com/caiocarneloz/brasilio-covid19-data/main/covid19_brasil_io.csv"
+    df = pd.read_csv(url)
+    return df
 
-df = X.copy()
-df["diagnóstico"] = y.map({0: "Maligno", 1: "Benigno"})
+dados = carregar_dados()
 
-st.header("1. Coleta e visualização dos dados")
-st.write("O conjunto de dados contém informações sobre células tumorais de pacientes.")
-st.dataframe(df.head())
+st.subheader("📊 Prévia dos dados")
+st.dataframe(dados.head())
 
-st.write("Tamanho do conjunto de dados:", df.shape)
+# -------------------------
+# Seleção de filtros
+# -------------------------
+estados = sorted(dados["state"].unique())
+estado_selecionado = st.selectbox("Selecione um estado:", estados)
 
-# -----------------------------------------------
-# ANÁLISE EXPLORATÓRIA
-# -----------------------------------------------
-st.header("2. Análise exploratória")
+dados_estado = dados[dados["state"] == estado_selecionado]
 
-st.subheader("Distribuição das classes (diagnósticos)")
-st.bar_chart(df["diagnóstico"].value_counts())
+# -------------------------
+# Gráfico de evolução
+# -------------------------
+st.subheader(f"📈 Evolução de casos e mortes em {estado_selecionado}")
 
-st.subheader("Estatísticas descritivas")
-st.write(df.describe())
-
-st.subheader("Correlação entre as variáveis numéricas")
-corr = X.corr()
-fig, ax = plt.subplots(figsize=(8, 6))
-sns.heatmap(corr, cmap="coolwarm", ax=ax)
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.plot(dados_estado["date"], dados_estado["confirmed"], label="Casos Confirmados")
+ax.plot(dados_estado["date"], dados_estado["deaths"], label="Mortes", color="red")
+ax.set_xlabel("Data")
+ax.set_ylabel("Quantidade")
+ax.legend()
+plt.xticks(rotation=45)
 st.pyplot(fig)
 
-# -----------------------------------------------
-# FILTRO SIMPLES
-# -----------------------------------------------
-st.header("3. Filtro de dados")
-st.write("Use o filtro abaixo para selecionar apenas os exames com determinado valor mínimo de raio médio.")
+# -------------------------
+# Análise Não Supervisionada (K-Means)
+# -------------------------
+st.subheader("🧬 Agrupamento (K-Means)")
+st.markdown("Agrupa estados com base no número total de casos e mortes.")
 
-valor_raio = st.slider(
-    "Raio médio mínimo (mean radius)",
-    float(X["mean radius"].min()),
-    float(X["mean radius"].max()),
-    float(X["mean radius"].mean())
-)
-
-df_filtrado = df[df["mean radius"] >= valor_raio]
-st.write(f"Total de registros após filtro: {df_filtrado.shape[0]}")
-st.dataframe(df_filtrado.head())
-
-# -----------------------------------------------
-# TRATAMENTO DOS DADOS
-# -----------------------------------------------
-st.header("4. Tratamento dos dados")
-
-st.write("""
-Antes de treinar o modelo, é necessário padronizar os dados.
-Isso garante que todas as variáveis tenham a mesma escala, 
-evitando que uma característica influencie mais que as outras.
-""")
+agrupamento = dados.groupby("state")[["confirmed", "deaths"]].max().reset_index()
 
 scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+dados_padronizados = scaler.fit_transform(agrupamento[["confirmed", "deaths"]])
 
-# -----------------------------------------------
-# MODELO SUPERVISIONADO - CLASSIFICAÇÃO
-# -----------------------------------------------
-st.header("5. Modelo supervisionado (Regressão Logística)")
+modelo_kmeans = KMeans(n_clusters=3, random_state=42)
+agrupamento["Cluster"] = modelo_kmeans.fit_predict(dados_padronizados)
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42
-)
+st.dataframe(agrupamento)
 
-modelo = LogisticRegression(max_iter=1000)
-modelo.fit(X_train, y_train)
-y_pred = modelo.predict(X_test)
+fig2, ax2 = plt.subplots()
+for cluster in sorted(agrupamento["Cluster"].unique()):
+    grupo = agrupamento[agrupamento["Cluster"] == cluster]
+    ax2.scatter(grupo["confirmed"], grupo["deaths"], label=f"Grupo {cluster}")
+ax2.set_xlabel("Casos Confirmados")
+ax2.set_ylabel("Mortes")
+ax2.legend()
+st.pyplot(fig2)
 
-acuracia = accuracy_score(y_test, y_pred)
-st.write(f"Acurácia do modelo: **{acuracia * 100:.2f}%**")
+# -------------------------
+# Análise Supervisionada (Regressão Linear)
+# -------------------------
+st.subheader("📉 Predição Simples de Casos")
+st.markdown("Treina um modelo de regressão linear para prever o número de casos com base nas mortes registradas.")
 
-st.subheader("Matriz de confusão")
-cm = confusion_matrix(y_test, y_pred)
-fig, ax = plt.subplots()
-sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
-ax.set_xlabel("Previsto")
-ax.set_ylabel("Real")
-st.pyplot(fig)
+X = dados[["deaths"]]
+y = dados["confirmed"]
 
-st.subheader("Relatório de classificação")
-st.text(classification_report(y_test, y_pred, target_names=["Maligno", "Benigno"]))
+X_treino, X_teste, y_treino, y_teste = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# -----------------------------------------------
-# MODELO NÃO SUPERVISIONADO - AGRUPAMENTO
-# -----------------------------------------------
-st.header("6. Modelo não supervisionado (K-Means)")
+modelo = LinearRegression()
+modelo.fit(X_treino, y_treino)
+pred = modelo.predict(X_teste)
 
-st.write("""
-O K-Means é uma técnica de agrupamento que tenta separar os dados em grupos (clusters)
-com base em suas semelhanças. Aqui, usamos 2 grupos, já que há dois tipos de diagnósticos.
-""")
+r2 = r2_score(y_teste, pred)
+mae = mean_absolute_error(y_teste, pred)
 
-kmeans = KMeans(n_clusters=2, random_state=42)
-clusters = kmeans.fit_predict(X_scaled)
-df["Cluster"] = clusters
+st.write(f"**R² (qualidade do ajuste):** {r2:.4f}")
+st.write(f"**Erro Médio Absoluto (MAE):** {mae:.2f}")
 
-fig, ax = plt.subplots()
-sns.scatterplot(
-    x=df["mean radius"],
-    y=df["mean texture"],
-    hue=df["Cluster"],
-    palette="viridis",
-    ax=ax
-)
-ax.set_title("Visualização dos agrupamentos (K-Means)")
-st.pyplot(fig)
-
-st.write("Comparação entre o cluster atribuído e o diagnóstico real:")
-st.table(df.groupby(["Cluster", "diagnóstico"]).size())
-
-# -----------------------------------------------
-# INTERPRETAÇÃO FINAL
-# -----------------------------------------------
-st.header("7. Interpretação dos resultados")
-st.markdown("""
-- O modelo supervisionado (Regressão Logística) apresentou **alta acurácia**, mostrando que as características das células são bons indicadores do tipo de tumor.  
-- O modelo não supervisionado (K-Means) conseguiu identificar padrões nos dados sem usar os rótulos, agrupando de forma parecida aos diagnósticos reais.  
-- A análise exploratória mostrou forte correlação entre o tamanho, área e perímetro das células — indicando que tumores malignos geralmente possuem **núcleos maiores e mais irregulares**.  
-""")
-
-st.success("Análise concluída com sucesso.")
+st.markdown("#### Gráfico de previsão")
+fig3, ax3 = plt.subplots()
+ax3.scatter(y_teste, pred, alpha=0.5)
+ax3.set_xlabel("Casos reais")
+ax3.set_ylabel("Casos previstos")
+ax3.set_title("Previsão de Casos de COVID-19")
+st.pyplot(fig3)
