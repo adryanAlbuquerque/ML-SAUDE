@@ -1,22 +1,20 @@
-# 🩺 Análise de COVID-19 no Brasil — Machine Learning Aplicado à Saúde
+# Machine Learning Aplicado à Saúde — Predição de Óbitos por COVID-19
 
-Este projeto foi desenvolvido como atividade prática da disciplina **Machine Learning Aplicado à Saúde**.
+## 🎯 Objetivo
+Este projeto demonstra a aplicação de **técnicas de aprendizado supervisionado** em dados da área da saúde, utilizando um modelo de **Regressão Linear** para estimar o número de óbitos a partir do total de casos de COVID-19.
 
-## 📍 Objetivo
-Demonstrar o uso de técnicas de **aprendizagem supervisionada** (regressão linear) e **não supervisionada** (K-Means) aplicadas a dados reais da COVID-19 no Brasil.
+## 🧠 Etapas do Projeto
+1. **Coleta e tratamento dos dados** — dados simplificados simulando registros por estado.
+2. **Análise Exploratória (EDA)** — visualização da relação entre casos e óbitos.
+3. **Modelagem Supervisionada** — Regressão Linear simples.
+4. **Interpretação dos resultados** — análise das métricas e do desempenho preditivo.
 
-## 📊 Dataset
-Fonte: [Brasil.IO](https://brasil.io/dataset/covid19/boletim/)  
-O dataset contém informações de casos e mortes por estado e data.
+## 📊 Métricas Utilizadas
+- **R²** — grau de explicação do modelo.
+- **MAE** — erro absoluto médio.
+- **RMSE** — raiz do erro quadrático médio.
 
-## 🧠 Técnicas Utilizadas
-- Limpeza e tratamento de dados
-- Análise exploratória e visualização
-- Agrupamento (K-Means)
-- Regressão Linear
-- Avaliação de modelo (R² e MAE)
-
-## 🚀 Como executar
-```bash
-pip install -r requirements.txt
-streamlit run app.py
+## 🚀 Execução
+1. Instale as dependências:
+   ```bash
+   pip install -r requirements.txt
