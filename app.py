@@ -26,8 +26,10 @@ Aqui você pode:
 # -------------------------
 @st.cache_data
 def carregar_dados():
-    url = "https://raw.githubusercontent.com/caiocarneloz/brasilio-covid19-data/main/covid19_brasil_io.csv"
-    df = pd.read_csv(url)
+    # Fonte Brasil.IO — tabela “caso” que tem casos e mortes por data e estado/município
+    url = "https://data.brasil.io/dataset/covid19/caso.csv.gz"
+    # Alternativamente, você pode usar “caso_full.csv.gz” se quiser mais colunas/níveis municipais
+    df = pd.read_csv(url, compression='gzip', low_memory=False)
     return df
 
 dados = carregar_dados()
@@ -36,12 +38,13 @@ st.subheader("📊 Prévia dos dados")
 st.dataframe(dados.head())
 
 # -------------------------
-# Seleção de filtros
+# Filtrar para nível de estado
 # -------------------------
-estados = sorted(dados["state"].unique())
+# A fonte tem linhas de “place_type” = state ou city
+estados = sorted(dados.loc[dados["place_type"] == "state", "state"].unique())
 estado_selecionado = st.selectbox("Selecione um estado:", estados)
 
-dados_estado = dados[dados["state"] == estado_selecionado]
+dados_estado = dados[(dados["state"] == estado_selecionado) & (dados["place_type"] == "state")]
 
 # -------------------------
 # Gráfico de evolução
@@ -49,8 +52,8 @@ dados_estado = dados[dados["state"] == estado_selecionado]
 st.subheader(f"📈 Evolução de casos e mortes em {estado_selecionado}")
 
 fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(dados_estado["date"], dados_estado["confirmed"], label="Casos Confirmados")
-ax.plot(dados_estado["date"], dados_estado["deaths"], label="Mortes", color="red")
+ax.plot(pd.to_datetime(dados_estado["date"]), dados_estado["confirmed"], label="Casos Confirmados")
+ax.plot(pd.to_datetime(dados_estado["date"]), dados_estado["deaths"], label="Mortes", color="red")
 ax.set_xlabel("Data")
 ax.set_ylabel("Quantidade")
 ax.legend()
@@ -61,9 +64,13 @@ st.pyplot(fig)
 # Análise Não Supervisionada (K-Means)
 # -------------------------
 st.subheader("🧬 Agrupamento (K-Means)")
-st.markdown("Agrupa estados com base no número total de casos e mortes.")
+st.markdown("Agrupa estados com base no número máximo de casos e mortes registrados.")
 
-agrupamento = dados.groupby("state")[["confirmed", "deaths"]].max().reset_index()
+# Pegamos valores por estado (place_type = state), máximo acumulado de confirmed/deaths
+agrupamento = (dados[dados["place_type"] == "state"]
+               .groupby("state")[["confirmed", "deaths"]]
+               .max()
+               .reset_index())
 
 scaler = StandardScaler()
 dados_padronizados = scaler.fit_transform(agrupamento[["confirmed", "deaths"]])
@@ -77,8 +84,8 @@ fig2, ax2 = plt.subplots()
 for cluster in sorted(agrupamento["Cluster"].unique()):
     grupo = agrupamento[agrupamento["Cluster"] == cluster]
     ax2.scatter(grupo["confirmed"], grupo["deaths"], label=f"Grupo {cluster}")
-ax2.set_xlabel("Casos Confirmados")
-ax2.set_ylabel("Mortes")
+ax2.set_xlabel("Casos Confirmados Máx")
+ax2.set_ylabel("Mortes Máx")
 ax2.legend()
 st.pyplot(fig2)
 
@@ -88,8 +95,11 @@ st.pyplot(fig2)
 st.subheader("📉 Predição Simples de Casos")
 st.markdown("Treina um modelo de regressão linear para prever o número de casos com base nas mortes registradas.")
 
-X = dados[["deaths"]]
-y = dados["confirmed"]
+# Usar todos os dados de nível estado — ou você pode limitar a um estado, mas para regressão talvez faça sentido usar todos estados.
+df_model = dados[(dados["place_type"] == "state")][["deaths", "confirmed"]].dropna()
+
+X = df_model[["deaths"]]
+y = df_model["confirmed"]
 
 X_treino, X_teste, y_treino, y_teste = train_test_split(X, y, test_size=0.2, random_state=42)
 
