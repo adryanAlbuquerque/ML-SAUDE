@@ -7,78 +7,112 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import numpy as np
 
-st.set_page_config(page_title="Análise de Saúde - COVID-19", layout="wide")
+# Configuração inicial
+st.set_page_config(page_title="Análise de COVID-19 no Brasil", layout="wide")
 
+st.title("Análise de COVID-19 no Brasil")
+st.markdown("""
+Este projeto demonstra a aplicação de **Aprendizado de Máquina Supervisionado** em dados reais da **COVID-19 no Brasil**.  
+O objetivo é analisar, visualizar e prever o número de óbitos com base na quantidade de casos confirmados.
+""")
+
+# Carregar dados
 @st.cache_data
 def carregar_dados():
-    dados = {
-        "estado": ["SP", "RJ", "MG", "BA", "RS", "PR", "SC", "PE", "CE", "PA",
-                   "GO", "AM", "ES", "PB", "RN", "MT", "DF", "MS", "MA", "PI",
-                   "SE", "AL", "TO", "RO", "RR", "AP", "AC"],
-        "casos": [1200000, 800000, 750000, 650000, 620000, 580000, 500000, 470000, 450000, 420000,
-                  400000, 390000, 380000, 350000, 340000, 320000, 310000, 300000, 290000, 280000,
-                  250000, 240000, 230000, 220000, 200000, 180000, 160000],
-        "obitos": [45000, 30000, 25000, 22000, 21000, 20000, 17000, 15000, 14000, 13000,
-                   12000, 11000, 10000, 9000, 8500, 8000, 7800, 7600, 7500, 7400,
-                   7000, 6800, 6600, 6400, 6000, 5800, 5600]
-    }
-    return pd.DataFrame(dados)
+    url = "https://raw.githubusercontent.com/wcota/covid19br/master/cases-brazil-states.csv"
+    df = pd.read_csv(url)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.rename(columns={"state": "estado", "totalCases": "casos", "deaths": "obitos"})
+    df = df[["date", "estado", "casos", "obitos"]]
+    df = df[df["estado"] != "TOTAL"]
+    return df
 
 dados = carregar_dados()
 
-st.title("📊 Machine Learning Aplicado à Saúde")
-st.subheader("Predição de Óbitos por COVID-19 com Regressão Linear")
-st.markdown("""
-Este projeto demonstra a aplicação de **aprendizado supervisionado** na área da saúde, utilizando dados simplificados de COVID-19 no Brasil.
-""")
+# Menu lateral
+pagina = st.sidebar.radio("Navegação", ["Exploração dos Dados", "Análise por Estado", "Modelagem Supervisionada"])
 
-aba = st.sidebar.radio("Selecione a Seção", ["Visão Geral", "Análise Exploratória", "Modelagem Supervisionada"])
+# =======================
+# EXPLORAÇÃO DOS DADOS
+# =======================
+if pagina == "Exploração dos Dados":
+    st.header("Exploração dos Dados")
 
-if aba == "Visão Geral":
-    st.header("Visão Geral dos Dados")
-    st.dataframe(dados, use_container_width=True)
+    dados_atuais = dados.groupby("estado")[["casos", "obitos"]].max().reset_index()
+    dados_atuais["letalidade"] = (dados_atuais["obitos"] / dados_atuais["casos"]) * 100
 
-    st.markdown("""
-    Os dados simulam o total de casos e óbitos de COVID-19 por estado brasileiro.  
-    Essa base serve para demonstrar o processo de coleta, tratamento e modelagem preditiva.
-    """)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Casos Totais", f"{dados_atuais['casos'].sum():,}".replace(",", "."))
+    c2.metric("Óbitos Totais", f"{dados_atuais['obitos'].sum():,}".replace(",", "."))
+    c3.metric("Letalidade Média (%)", f"{dados_atuais['letalidade'].mean():.2f}")
 
+    st.markdown("### Casos confirmados por estado")
     fig, ax = plt.subplots(figsize=(10, 5))
-    sns.barplot(data=dados, x="estado", y="casos", color="skyblue", label="Casos")
-    sns.barplot(data=dados, x="estado", y="obitos", color="salmon", label="Óbitos")
-    ax.legend()
-    ax.set_title("Casos e Óbitos por Estado")
+    sns.barplot(data=dados_atuais.sort_values("casos", ascending=False), x="estado", y="casos", color="steelblue")
     ax.set_xlabel("Estado")
+    ax.set_ylabel("Casos Confirmados")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("**Interpretação:** Os estados com maior número de casos são São Paulo, Minas Gerais e Paraná, devido à alta densidade populacional.")
+
+    st.markdown("### Óbitos confirmados por estado")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(data=dados_atuais.sort_values("obitos", ascending=False), x="estado", y="obitos", color="indianred")
+    ax.set_xlabel("Estado")
+    ax.set_ylabel("Óbitos")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("**Interpretação:** O padrão de óbitos acompanha os casos, com destaque para os estados mais populosos.")
+
+    st.markdown("### Taxa de letalidade (%) por estado")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(data=dados_atuais.sort_values("letalidade", ascending=False), x="estado", y="letalidade", color="gray")
+    ax.set_xlabel("Estado")
+    ax.set_ylabel("Letalidade (%)")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("**Interpretação:** Estados com letalidade mais alta podem ter menor capacidade de testagem ou atendimento médico.")
+
+# =======================
+# ANÁLISE INDIVIDUAL
+# =======================
+elif pagina == "Análise por Estado":
+    st.header("Análise Individual por Estado")
+    estados = sorted(dados["estado"].unique())
+    estado_sel = st.selectbox("Selecione o estado:", estados)
+    df_estado = dados[dados["estado"] == estado_sel]
+
+    st.markdown(f"### Evolução da COVID-19 em {estado_sel}")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df_estado["date"], df_estado["casos"], label="Casos", color="steelblue")
+    ax.plot(df_estado["date"], df_estado["obitos"], label="Óbitos", color="indianred")
+    ax.legend()
+    ax.set_xlabel("Data")
     ax.set_ylabel("Quantidade")
     st.pyplot(fig)
     plt.close(fig)
 
-elif aba == "Análise Exploratória":
-    st.header("Análise Exploratória dos Dados")
+    taxa_crescimento = df_estado["casos"].pct_change().mean() * 100
+    st.metric("Crescimento médio diário de casos (%)", f"{taxa_crescimento:.2f}")
 
-    fig1, ax1 = plt.subplots(figsize=(8, 5))
-    sns.scatterplot(data=dados, x="casos", y="obitos", s=100)
-    ax1.set_title("Relação entre Casos e Óbitos")
-    st.pyplot(fig1)
-    plt.close(fig1)
+    st.markdown("**Interpretação:** Este gráfico mostra o crescimento acumulado de casos e óbitos ao longo do tempo. A taxa de crescimento indica o avanço médio diário da doença no estado selecionado.")
 
-    correlacao = dados["casos"].corr(dados["obitos"])
-    st.metric("Correlação entre Casos e Óbitos", f"{correlacao:.2f}")
-
-    st.markdown("""
-    **Interpretação:**  
-    Observa-se uma correlação positiva alta entre casos e óbitos, indicando que quanto mais casos confirmados, maior tende a ser o número de óbitos.
-    """)
-
-elif aba == "Modelagem Supervisionada":
+# =======================
+# MODELAGEM SUPERVISIONADA
+# =======================
+elif pagina == "Modelagem Supervisionada":
     st.header("Predição de Óbitos com Regressão Linear")
+
     st.markdown("""
-    Esta seção aplica um modelo de **Regressão Linear** para estimar o número de óbitos a partir da quantidade de casos confirmados.  
-    O objetivo é demonstrar uma técnica simples de aprendizado supervisionado.
+    Nesta etapa, aplicamos um modelo de **Regressão Linear** para prever o número de óbitos com base no total de casos confirmados.
     """)
 
-    X = dados[["casos"]].values
-    y = dados["obitos"].values
+    dados_atuais = dados.groupby("estado")[["casos", "obitos"]].max().reset_index()
+    X = dados_atuais[["casos"]]
+    y = dados_atuais["obitos"]
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     modelo = LinearRegression()
@@ -94,19 +128,21 @@ elif aba == "Modelagem Supervisionada":
     col2.metric("MAE", f"{mae:.0f}")
     col3.metric("RMSE", f"{rmse:.0f}")
 
-    fig2, ax2 = plt.subplots(figsize=(8, 5))
-    sns.regplot(x=y_test, y=y_pred, line_kws={"color": "gray"}, scatter_kws={"s": 80})
-    ax2.set_xlabel("Óbitos Reais")
-    ax2.set_ylabel("Óbitos Preditos")
-    ax2.set_title("Desempenho da Regressão Linear")
-    st.pyplot(fig2)
-    plt.close(fig2)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    sns.regplot(x=y_test, y=y_pred, scatter_kws={"s": 80, "color": "steelblue"}, line_kws={"color": "red"})
+    ax.set_xlabel("Óbitos Reais")
+    ax.set_ylabel("Óbitos Preditos")
+    ax.set_title("Desempenho da Regressão Linear")
+    st.pyplot(fig)
+    plt.close(fig)
 
     st.markdown("""
     **Interpretação:**  
-    O modelo conseguiu explicar parte da relação linear entre casos e óbitos.  
-    Embora simples, ele demonstra como técnicas de aprendizado supervisionado podem ser aplicadas em dados de saúde para fins de estimativa e análise preditiva.
+    - O **R²** indica quanto da variação dos óbitos é explicada pelos casos confirmados.  
+    - O **MAE** e o **RMSE** mostram o erro médio das previsões.  
+    - Como o modelo usa apenas uma variável (casos), ele captura a relação geral, mas não considera fatores externos como testagem, idade média ou vacinação.
     """)
 
+# Rodapé
 st.markdown("---")
-st.caption("Desenvolvido para a disciplina de *Machine Learning Aplicado à Saúde*.")
+st.caption("Projeto Acadêmico — Machine Learning Aplicado à Saúde | 2025")
