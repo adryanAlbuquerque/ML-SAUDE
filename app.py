@@ -2,116 +2,84 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import numpy as np
 
-st.set_page_config(page_title="Análise COVID-19 no Brasil", layout="wide")
-sns.set_style("whitegrid")
+st.set_page_config(page_title="Análise de COVID-19 no Brasil", layout="wide")
 
-st.title("Análise de Dados da COVID-19 no Brasil")
+st.title("Machine Learning Aplicado à Saúde: COVID-19 no Brasil")
 st.markdown("""
-Aplicação prática desenvolvida para o projeto de **Machine Learning Aplicado à Saúde**.  
-Os dados utilizados são públicos e provenientes do repositório [wcota/covid19br](https://github.com/wcota/covid19br).
+Este projeto aplica técnicas de **Aprendizagem Supervisionada** sobre dados reais da COVID-19 no Brasil.  
+O objetivo é coletar, tratar, modelar e interpretar dados de forma clara e acessível.
 """)
 
 @st.cache_data
 def carregar_dados():
     url = "https://raw.githubusercontent.com/wcota/covid19br/master/cases-brazil-states.csv"
     df = pd.read_csv(url)
-    df = df.rename(columns={"state": "estado", "totalCases": "casos", "deaths": "obitos", "date": "data"})
-    df["data"] = pd.to_datetime(df["data"], errors="coerce")
-    df = df.dropna(subset=["estado", "casos", "obitos"])
-    estados_validos = [
-        "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
-        "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
-        "RO", "RR", "RS", "SC", "SE", "SP", "TO"
-    ]
-    df = df[df["estado"].isin(estados_validos)]
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.rename(columns={"state": "estado", "newDeaths": "novos_obitos", "newCases": "novos_casos", 
+                            "deaths": "obitos", "totalCases": "casos"})
+    df = df[["date", "estado", "casos", "obitos", "novos_casos", "novos_obitos"]]
+    df = df[df["estado"] != "TOTAL"]
     return df
 
 dados = carregar_dados()
-dados_atuais = dados.sort_values("data").groupby("estado", as_index=False).last()
-dados_atuais["letalidade"] = (dados_atuais["obitos"] / dados_atuais["casos"]).fillna(0) * 100
+estados = sorted(dados["estado"].unique())
+pagina = st.sidebar.radio("Navegação", ["Exploração dos Dados", "Análise por Estado", "Modelagem Supervisionada"])
 
-st.sidebar.title("Navegação")
-pagina = st.sidebar.radio(
-    "Selecione a seção:",
-    ["Visão Geral", "Tendências por Estado", "Modelagem Supervisionada"]
-)
+if pagina == "Exploração dos Dados":
+    st.header("Exploração dos Dados")
+    st.markdown("Nesta seção, apresentamos uma visão geral dos casos e óbitos confirmados de COVID-19 no Brasil.")
 
-if pagina == "Visão Geral":
-    st.header("Panorama Geral da COVID-19 no Brasil")
-
-    total_casos = int(dados_atuais["casos"].sum())
-    total_obitos = int(dados_atuais["obitos"].sum())
-    letalidade_geral = (total_obitos / total_casos) * 100
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Casos Totais", f"{total_casos:,}".replace(",", "."))
-    col2.metric("Óbitos Totais", f"{total_obitos:,}".replace(",", "."))
-    col3.metric("Letalidade Média (%)", f"{letalidade_geral:.2f}")
-
-    st.subheader("Casos Confirmados por Estado")
-    top_casos = dados_atuais.sort_values("casos", ascending=False)
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.barplot(y="estado", x="casos", data=top_casos, palette="Blues_r", ax=ax)
-    ax.set_xlabel("Casos Confirmados")
-    ax.set_ylabel("Estado")
-    st.pyplot(fig)
-    plt.close(fig)
-    st.markdown("""
-    **Interpretação:**  
-    O gráfico mostra o número total de casos confirmados por estado.  
-    Estados como São Paulo, Minas Gerais e Rio de Janeiro apresentam os maiores volumes de casos acumulados.
-    """)
-
-    st.subheader("Taxa de Letalidade por Estado (%)")
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.barplot(x="estado", y="letalidade", data=dados_atuais.sort_values("letalidade", ascending=False), palette="Reds_r", ax=ax)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-    st.pyplot(fig)
-    plt.close(fig)
-    st.markdown("""
-    **Interpretação:**  
-    A taxa de letalidade representa o percentual de óbitos entre os casos confirmados.  
-    Estados com letalidade mais alta podem indicar subnotificação de casos leves ou limitações no atendimento hospitalar.
-    """)
-
-elif pagina == "Tendências por Estado":
-    st.header("Evolução Temporal por Estado")
-
-    estado_sel = st.selectbox("Selecione o Estado", sorted(dados["estado"].unique()), index=25)
-    df_estado = dados[dados["estado"] == estado_sel].sort_values("data")
+    dados_atuais = dados.groupby("estado")[["casos", "obitos"]].max().reset_index()
+    dados_atuais["letalidade"] = (dados_atuais["obitos"] / dados_atuais["casos"]) * 100
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.fill_between(df_estado["data"], df_estado["casos"], color="skyblue", alpha=0.4)
-    ax.plot(df_estado["data"], df_estado["casos"], color="blue", linewidth=2)
-    ax.set_title(f"Evolução de Casos — {estado_sel}")
-    ax.set_xlabel("Data")
-    ax.set_ylabel("Casos Confirmados")
+    sns.barplot(data=dados_atuais.sort_values("casos", ascending=False), x="estado", y="casos", ax=ax)
+    ax.set_title("Casos Confirmados por Estado")
     st.pyplot(fig)
     plt.close(fig)
-    st.markdown("""
-    **Interpretação:**  
-    O gráfico mostra a evolução acumulada de casos no estado selecionado.  
-    Picos ou desacelerações indicam momentos de aumento ou estabilização da transmissão.
-    """)
+
+    st.markdown("**Interpretação:** Os estados com maior número de casos são São Paulo, Minas Gerais e Paraná, refletindo suas populações e densidade urbana.")
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.fill_between(df_estado["data"], df_estado["obitos"], color="salmon", alpha=0.4)
-    ax.plot(df_estado["data"], df_estado["obitos"], color="red", linewidth=2)
-    ax.set_title(f"Evolução de Óbitos — {estado_sel}")
-    ax.set_xlabel("Data")
-    ax.set_ylabel("Óbitos Acumulados")
+    sns.barplot(data=dados_atuais.sort_values("obitos", ascending=False), x="estado", y="obitos", ax=ax, color="salmon")
+    ax.set_title("Óbitos Confirmados por Estado")
     st.pyplot(fig)
     plt.close(fig)
-    st.markdown("""
-    **Interpretação:**  
-    O crescimento contínuo indica a persistência da mortalidade ao longo do tempo.  
-    A redução de inclinação mostra períodos de maior controle da pandemia.
-    """)
+
+    st.markdown("**Interpretação:** A distribuição de óbitos segue o padrão dos casos, com maiores números em estados de alta população e circulação de pessoas.")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(data=dados_atuais.sort_values("letalidade", ascending=False), x="estado", y="letalidade", ax=ax, color="gray")
+    ax.set_title("Taxa de Letalidade (%) por Estado")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("**Interpretação:** Estados do Norte e Nordeste tendem a apresentar maior taxa de letalidade, possivelmente associada à menor infraestrutura hospitalar.")
+
+elif pagina == "Análise por Estado":
+    st.header("Análise Individual por Estado")
+    estado_selecionado = st.selectbox("Selecione o estado:", estados)
+    df_estado = dados[dados["estado"] == estado_selecionado]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df_estado["date"], df_estado["casos"], label="Casos", color="blue")
+    ax.plot(df_estado["date"], df_estado["obitos"], label="Óbitos", color="red")
+    ax.legend()
+    ax.set_xlabel("Data")
+    ax.set_ylabel("Quantidade")
+    ax.set_title(f"Evolução da COVID-19 em {estado_selecionado}")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("**Interpretação:** O gráfico mostra a evolução acumulada de casos e óbitos ao longo do tempo para o estado selecionado. A distância entre as curvas reflete a taxa de letalidade local.")
+
+    taxa_crescimento = df_estado["casos"].pct_change().mean() * 100
+    st.metric("Crescimento Médio Diário de Casos (%)", f"{taxa_crescimento:.2f}")
 
 elif pagina == "Modelagem Supervisionada":
     st.header("Predição de Óbitos com Regressão Linear")
@@ -121,6 +89,7 @@ elif pagina == "Modelagem Supervisionada":
     O objetivo é demonstrar uma técnica simples de aprendizado supervisionado.
     """)
 
+    dados_atuais = dados.groupby("estado")[["casos", "obitos"]].max().reset_index()
     X = dados_atuais[["casos"]].values
     y = dados_atuais["obitos"].values
 
@@ -132,7 +101,7 @@ elif pagina == "Modelagem Supervisionada":
 
         r2 = r2_score(y_test, y_pred)
         mae = mean_absolute_error(y_test, y_pred)
-        rmse = mean_squared_error(y_test, y_pred, squared=False)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
         col1, col2, col3 = st.columns(3)
         col1.metric("R²", f"{r2:.2f}")
@@ -149,11 +118,8 @@ elif pagina == "Modelagem Supervisionada":
 
         st.markdown("""
         **Interpretação:**  
-        A relação linear entre casos e óbitos é evidente — quanto maior o número de casos, maior a tendência de mortes.  
-        O modelo supervisionado confirma a correlação forte entre as duas variáveis, sendo útil para previsões em novos cenários.
+        A relação linear entre casos e óbitos é clara — quanto maior o número de casos, maior a tendência de mortes.  
+        O modelo supervisionado demonstra uma correlação forte entre as duas variáveis, sendo útil para estimativas e análises preditivas simples.
         """)
     else:
         st.warning("Dados insuficientes para treinar o modelo.")
-
-st.markdown("---")
-st.caption("Projeto Acadêmico — Machine Learning Aplicado à Saúde | 2025")
