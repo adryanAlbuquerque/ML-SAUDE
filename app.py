@@ -11,26 +11,25 @@ from sklearn.metrics import r2_score, mean_absolute_error
 # Configuração da página
 # -------------------------
 st.set_page_config(
-    page_title="🩺 Análise de COVID-19 no Brasil",
-    page_icon="🦠",
+    page_title="Análise de COVID-19 no Brasil",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # -------------------------
-# Estilo / cabeçalho
+# Cabeçalho
 # -------------------------
-st.title("🩺 Análise de COVID-19 no Brasil")
+st.title("Análise de COVID-19 no Brasil")
 st.markdown(
     """
-    Este aplicativo demonstra o uso de **Machine Learning aplicado à Saúde**, com foco na **COVID-19 no Brasil**.<br>
-    Aqui você pode:
-    - Explorar os dados oficiais por estado (e opcionalmente por município);
+    Este aplicativo demonstra o uso de **Machine Learning aplicado à Saúde**, com foco na **COVID-19 no Brasil**.
+
+    Funcionalidades:
+    - Explorar os dados oficiais por estado ou município;
     - Visualizar gráficos de casos e mortes;
-    - Realizar uma análise de agrupamento (K-Means);
-    - Treinar um modelo simples de regressão para prever casos.
-    """,
-    unsafe_allow_html=True
+    - Analisar agrupamentos (K-Means);
+    - Treinar um modelo de regressão linear para prever casos.
+    """
 )
 
 # -------------------------
@@ -44,42 +43,48 @@ def carregar_dados():
 
 dados = carregar_dados()
 
-# Mostra preview
-st.subheader("📊 Pré-visualização dos dados")
-st.dataframe(dados.head())
-
 # -------------------------
-# Filtros de seleção
+# Barra lateral — filtros
 # -------------------------
-st.sidebar.header("Filtrar dados")
+st.sidebar.header("Filtros")
 
-# Níveis: estado ou município
-place_type = st.sidebar.selectbox(
-    "Nível de agregação",
+# Seleção de nível
+place_type = st.sidebar.radio(
+    "Nível de análise",
     options=["state", "city"],
-    help="Escolha se deseja analisar por estado ('state') ou por município ('city')"
+    format_func=lambda x: "Estado" if x == "state" else "Município"
 )
 
+# Seleção de estado
+estados_disponiveis = sorted(dados[dados["place_type"] == "state"]["state"].unique())
+estado_selecionado = st.sidebar.selectbox("Selecione o estado:", estados_disponiveis)
+
+# Filtro base
 if place_type == "state":
-    op_states = sorted(dados.loc[dados["place_type"] == "state", "state"].unique())
-    estado_selecionado = st.sidebar.selectbox("Selecione um estado:", op_states)
     dados_filtrados = dados[(dados["place_type"] == "state") & (dados["state"] == estado_selecionado)]
     cidade_selecionada = None
 else:
-    # nível município: primeiro escolher estado, depois município
-    op_states = sorted(dados.loc[dados["place_type"] == "city", "state"].unique())
-    estado_selecionado = st.sidebar.selectbox("Selecione um estado:", op_states)
-    op_cities = sorted(dados.loc[(dados["place_type"] == "city") & (dados["state"] == estado_selecionado), "city"].dropna().unique())
-    cidade_selecionada = st.sidebar.selectbox("Selecione uma cidade:", op_cities)
-    dados_filtrados = dados[(dados["place_type"] == "city") &
-                             (dados["state"] == estado_selecionado) &
-                             (dados["city"] == cidade_selecionada)]
+    cidades_disponiveis = sorted(
+        dados[(dados["place_type"] == "city") & (dados["state"] == estado_selecionado)]["city"].dropna().unique()
+    )
+    cidade_selecionada = st.sidebar.selectbox("Selecione o município:", cidades_disponiveis)
+    dados_filtrados = dados[
+        (dados["place_type"] == "city")
+        & (dados["state"] == estado_selecionado)
+        & (dados["city"] == cidade_selecionada)
+    ]
 
 # -------------------------
-# Gráfico de evolução
+# Visualização da amostra
 # -------------------------
-titulo_local = f"{estado_selecionado}" + (f" / {cidade_selecionada}" if cidade_selecionada else "")
-st.subheader(f"📈 Evolução de casos e mortes em {titulo_local}")
+st.subheader("Pré-visualização dos dados filtrados")
+st.dataframe(dados_filtrados.head())
+
+# -------------------------
+# Gráfico de evolução temporal
+# -------------------------
+titulo_local = estado_selecionado if not cidade_selecionada else f"{cidade_selecionada} / {estado_selecionado}"
+st.subheader(f"Evolução de casos e mortes em {titulo_local}")
 
 fig, ax = plt.subplots(figsize=(10, 5))
 ax.plot(pd.to_datetime(dados_filtrados["date"]), dados_filtrados["confirmed"], label="Casos Confirmados")
@@ -91,16 +96,18 @@ plt.xticks(rotation=45)
 st.pyplot(fig)
 
 # -------------------------
-# Análise Não Supervisionada (K-Means) — somente por estado faz sentido
+# Análise de Agrupamento (K-Means)
 # -------------------------
 if place_type == "state":
-    st.subheader("🧬 Agrupamento (K-Means)")
+    st.subheader("Análise de Agrupamento (K-Means)")
     st.markdown("Agrupa estados com base no número máximo de casos e mortes registrados.")
 
-    agrupamento = (dados[dados["place_type"] == "state"]
-                   .groupby("state")[["confirmed", "deaths"]]
-                   .max()
-                   .reset_index())
+    agrupamento = (
+        dados[dados["place_type"] == "state"]
+        .groupby("state")[["confirmed", "deaths"]]
+        .max()
+        .reset_index()
+    )
 
     scaler = StandardScaler()
     dados_padronizados = scaler.fit_transform(agrupamento[["confirmed", "deaths"]])
@@ -110,23 +117,23 @@ if place_type == "state":
 
     st.dataframe(agrupamento)
 
-    fig2, ax2 = plt.subplots()
+    fig2, ax2 = plt.subplots(figsize=(8, 5))
     for cluster in sorted(agrupamento["Cluster"].unique()):
         grupo = agrupamento[agrupamento["Cluster"] == cluster]
         ax2.scatter(grupo["confirmed"], grupo["deaths"], label=f"Grupo {cluster}")
-    ax2.set_xlabel("Casos Confirmados Máx")
-    ax2.set_ylabel("Mortes Máx")
+    ax2.set_xlabel("Casos Confirmados (máx)")
+    ax2.set_ylabel("Mortes (máx)")
     ax2.legend()
     st.pyplot(fig2)
 else:
-    st.info("A análise de agrupamento está disponível apenas no nível **estado**.")
+    st.info("A análise de agrupamento está disponível apenas para o nível de estado.")
 
 # -------------------------
-# Análise Supervisionada (Regressão Linear) — também somente por estado
+# Regressão Linear — previsão
 # -------------------------
 if place_type == "state":
-    st.subheader("📉 Predição Simples de Casos")
-    st.markdown("Treina um modelo de regressão linear para prever o número de casos com base nas mortes registradas.")
+    st.subheader("Predição de Casos com Regressão Linear")
+    st.markdown("Treina um modelo para prever o número de casos com base nas mortes registradas.")
 
     df_model = dados[(dados["place_type"] == "state")][["deaths", "confirmed"]].dropna()
     X = df_model[["deaths"]]
@@ -141,22 +148,22 @@ if place_type == "state":
     r2 = r2_score(y_test, pred)
     mae = mean_absolute_error(y_test, pred)
 
-    st.write(f"**R² (qualidade do ajuste):** {r2:.4f}")
-    st.write(f"**Erro Médio Absoluto (MAE):** {mae:.2f}")
+    col1, col2 = st.columns(2)
+    col1.metric("R² (Qualidade do ajuste)", f"{r2:.4f}")
+    col2.metric("Erro Médio Absoluto (MAE)", f"{mae:,.0f}")
 
     st.markdown("#### Gráfico de previsão")
-    fig3, ax3 = plt.subplots()
-    ax3.scatter(y_test, pred, alpha=0.5)
-    ax3.set_xlabel("Casos reais")
-    ax3.set_ylabel("Casos previstos")
-    ax3.set_title("Previsão de Casos de COVID-19")
+    fig3, ax3 = plt.subplots(figsize=(7, 5))
+    ax3.scatter(y_test, pred, alpha=0.6)
+    ax3.set_xlabel("Casos Reais")
+    ax3.set_ylabel("Casos Previstos")
+    ax3.set_title("Previsão de Casos de COVID-19 (Regressão Linear)")
     st.pyplot(fig3)
 else:
-    st.info("A predição está disponível apenas no nível **estado**.")
+    st.info("A predição está disponível apenas no nível de estado.")
 
 # -------------------------
 # Rodapé
 # -------------------------
 st.sidebar.markdown("---")
-st.sidebar.write("© 2025 Seu Nome / Projeto de Estudo")
-
+st.sidebar.caption("© 2025 - Projeto Educacional de Análise de Dados em Saúde")
