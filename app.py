@@ -155,39 +155,50 @@ else:
     ]
 
 # -------------------------
-# EVOLUÇÃO TEMPORAL
+# EVOLUÇÃO TEMPORAL (SUBSTITUÍDA POR UMA ANÁLISE FUNCIONAL)
 # -------------------------
 st.header(f"Evolução Temporal — {estado_sel}" + (f" / {cidade_sel}" if cidade_sel else ""))
 
-# Carrega histórico completo (caso seja necessário plotar séries)
-@st.cache_data
-def carregar_dados_full():
-    url_full = "https://data.brasil.io/dataset/covid19/caso_full.csv.gz"
-    df = pd.read_csv(url_full, compression="gzip", low_memory=False)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    return df
-
-dados_full = carregar_dados_full()
-
+# Filtra dados de acordo com o nível
 if nivel == "Estado":
-    df_plot = dados_full[(dados_full["place_type"] == "state") & (dados_full["state"] == estado_sel)]
+    df_plot = dados[(dados["place_type"] == "state") & (dados["state"] == estado_sel)].copy()
 else:
-    df_plot = dados_full[(dados_full["place_type"] == "city") & (dados_full["state"] == estado_sel) & (dados_full["city"] == cidade_sel)]
+    df_plot = dados[
+        (dados["place_type"] == "city") &
+        (dados["state"] == estado_sel) &
+        (dados["city"] == cidade_sel)
+    ].copy()
 
-if df_plot.empty:
-    st.warning("Sem dados históricos disponíveis para o filtro selecionado.")
+# Garante formato de data e ordenação
+df_plot["date"] = pd.to_datetime(df_plot["date"], errors="coerce")
+df_plot = df_plot.dropna(subset=["date"]).sort_values("date")
+
+# Verifica se há dados
+if df_plot.empty or "confirmed" not in df_plot.columns or "deaths" not in df_plot.columns:
+    st.warning("Sem dados disponíveis para gerar a evolução temporal.")
 else:
+    # Agrupa por data (em caso de duplicações)
+    serie = df_plot.groupby("date")[["confirmed", "deaths"]].sum().reset_index()
+
+    # Gráfico de linhas
     fig3, ax3 = plt.subplots(figsize=(10, 5))
-    if "confirmed" in df_plot.columns:
-        ax3.plot(df_plot["date"], df_plot["confirmed"], label="Casos Confirmados", color="tab:blue")
-    if "deaths" in df_plot.columns:
-        ax3.plot(df_plot["date"], df_plot["deaths"], label="Mortes", color="tab:red")
+    ax3.plot(serie["date"], serie["confirmed"], label="Casos Confirmados", color="tab:blue")
+    ax3.plot(serie["date"], serie["deaths"], label="Mortes", color="tab:red")
     ax3.set_title("Evolução de Casos e Mortes")
     ax3.set_xlabel("Data")
     ax3.set_ylabel("Quantidade")
     ax3.legend()
     plt.xticks(rotation=45)
     st.pyplot(fig3)
+
+    # Estatísticas adicionais
+    total_final = serie.iloc[-1]
+    st.markdown(f"""
+    **Resumo:**
+    - Período analisado: {serie["date"].min().date()} — {serie["date"].max().date()}
+    - Casos acumulados: **{int(total_final["confirmed"]):,}**
+    - Mortes acumuladas: **{int(total_final["deaths"]):,}**
+    """.replace(",", "."))
 
 # -------------------------
 # ANÁLISE DE AGRUPAMENTO (K-MEANS) - com checagens
