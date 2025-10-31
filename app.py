@@ -1,282 +1,188 @@
-
+# app.py
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import numpy as np
 
+# =====================
+# CONFIGURAÇÃO GERAL
+# =====================
+st.set_page_config(page_title="Análise COVID-19 no Brasil", layout="wide")
+sns.set_style("whitegrid")
 
-st.set_page_config(
-    page_title="Análise de COVID-19 no Brasil",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-st.title("Análise de COVID-19 no Brasil")
+st.title("📊 Análise Interativa da COVID-19 no Brasil")
 st.markdown("""
-Aplicativo interativo de Ciência de Dados aplicada à Saúde, com foco na COVID-19 no Brasil.  
-Os dados são obtidos de uma fonte pública: [wcota/covid19br](https://github.com/wcota/covid19br).
+Aplicação de Ciência de Dados em Saúde — dados de [wcota/covid19br](https://github.com/wcota/covid19br).
 """)
 
-
+# =====================
+# CARREGAMENTO DE DADOS
+# =====================
 @st.cache_data
 def carregar_dados():
-    try:
-        url = "https://raw.githubusercontent.com/wcota/covid19br/master/cases-brazil-states.csv"
-        df = pd.read_csv(url)
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
-        return pd.DataFrame()
-
-
-    df = df.rename(columns={
-        "date": "date",
-        "state": "state",
-        "totalCases": "confirmed",
-        "deaths": "deaths"
-    })
-
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["confirmed"] = pd.to_numeric(df["confirmed"], errors="coerce")
-    df["deaths"] = pd.to_numeric(df["deaths"], errors="coerce")
-    df = df.dropna(subset=["date", "state", "confirmed", "deaths"])
-
-
+    url = "https://raw.githubusercontent.com/wcota/covid19br/master/cases-brazil-states.csv"
+    df = pd.read_csv(url)
+    df = df.rename(columns={"state": "estado", "totalCases": "casos", "deaths": "obitos", "date": "data"})
+    df["data"] = pd.to_datetime(df["data"], errors="coerce")
+    df = df.dropna(subset=["estado", "casos", "obitos"])
     estados_validos = [
         "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
         "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
         "RO", "RR", "RS", "SC", "SE", "SP", "TO"
     ]
-    df = df[df["state"].isin(estados_validos)].copy()
-
+    df = df[df["estado"].isin(estados_validos)]
     return df
 
 dados = carregar_dados()
-if dados.empty:
-    st.error("Erro ao carregar dados. Verifique sua conexão com a internet.")
-    st.stop()
+dados_atuais = dados.sort_values("data").groupby("estado", as_index=False).last()
+dados_atuais["letalidade"] = (dados_atuais["obitos"] / dados_atuais["casos"]).fillna(0) * 100
 
-
-dados_atuais = dados.sort_values("date").groupby("state", as_index=False).last().copy()
-dados_atuais["letalidade"] = (dados_atuais["deaths"] / dados_atuais["confirmed"]).fillna(0) * 100
-
-
-st.sidebar.title("Navegação")
+# =====================
+# SIDEBAR
+# =====================
+st.sidebar.title("📂 Navegação")
 pagina = st.sidebar.radio(
-    "Selecione a visualização",
-    ("Visão Geral", "Análise por Estado", "Agrupamento (K-Means)", "Aprendizagem Supervisionada")
+    "Selecione uma seção:",
+    ["Visão Geral", "Tendências por Estado", "Agrupamento (K-Means)", "Modelagem Supervisionada"]
 )
 
+# =====================
+# VISÃO GERAL
+# =====================
 if pagina == "Visão Geral":
-    st.header("Visão Geral do Brasil")
+    st.header("Panorama Geral da COVID-19 no Brasil")
 
-    total_casos = int(dados_atuais["confirmed"].sum())
-    total_mortes = int(dados_atuais["deaths"].sum())
-    letalidade = (total_mortes / total_casos * 100) if total_casos > 0 else 0.0
+    total_casos = int(dados_atuais["casos"].sum())
+    total_obitos = int(dados_atuais["obitos"].sum())
+    letalidade_geral = (total_obitos / total_casos) * 100
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Casos Totais", f"{total_casos:,}".replace(",", "."))
-    c2.metric("Mortes Totais", f"{total_mortes:,}".replace(",", "."))
-    c3.metric("Taxa de Letalidade (%)", f"{letalidade:.2f}")
+    c2.metric("Óbitos Totais", f"{total_obitos:,}".replace(",", "."))
+    c3.metric("Letalidade Média (%)", f"{letalidade_geral:.2f}")
 
-    st.markdown(f"Resumo: {total_casos:,} casos e {total_mortes:,} mortes no Brasil (último registro disponível).".replace(",", "."))
-
-
-    st.subheader("Distribuição por Estado")
-    col1, col2 = st.columns(2)
-    with col1:
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.bar(dados_atuais["state"], dados_atuais["confirmed"])
-        ax.set_title("Casos Confirmados por Estado")
-        ax.set_xlabel("Estado")
-        ax.set_ylabel("Casos Confirmados")
-        plt.xticks(rotation=90)
-        st.pyplot(fig)
-        plt.close(fig)
-
-    with col2:
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.bar(dados_atuais["state"], dados_atuais["deaths"])
-        ax.set_title("Mortes por Estado")
-        ax.set_xlabel("Estado")
-        ax.set_ylabel("Óbitos")
-        plt.xticks(rotation=90)
-        st.pyplot(fig)
-        plt.close(fig)
-
-
-    st.subheader("Taxa de Letalidade por Estado (%)")
-    fig, ax = plt.subplots(figsize=(12, 4))
-    ax.bar(dados_atuais["state"], dados_atuais["letalidade"])
-    ax.set_ylabel("% Letalidade")
-    ax.set_title("Letalidade por Estado")
-    plt.xticks(rotation=90)
+    st.markdown("### Estados com Maior Número de Casos")
+    top_casos = dados_atuais.nlargest(10, "casos")
+    fig, ax = plt.subplots(figsize=(8, 5))
+    sns.barplot(y="estado", x="casos", data=top_casos, palette="Blues_r", ax=ax)
+    ax.set_xlabel("Casos Confirmados")
+    ax.set_ylabel("Estado")
     st.pyplot(fig)
     plt.close(fig)
 
-    st.markdown(
-        "Interpretação: Estados com maior letalidade podem indicar equipes de saúde saturadas, "
-        "subnotificação de casos leves, ou atraso nas notificações. Estados com baixa letalidade "
-        "podem ter melhor sistema de testagem/atenção."
-    )
+    st.markdown("### Taxa de Letalidade por Estado (%)")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(x="estado", y="letalidade", data=dados_atuais.sort_values("letalidade", ascending=False), palette="Reds_r", ax=ax)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+    st.pyplot(fig)
+    plt.close(fig)
 
+    st.info("🔍 **Interpretação:** estados com letalidade mais alta podem indicar atraso na detecção de casos leves ou sobrecarga no sistema de saúde.")
 
-elif pagina == "Análise por Estado":
-    st.header("Análise Individual por Estado")
+# =====================
+# TENDÊNCIAS POR ESTADO
+# =====================
+elif pagina == "Tendências por Estado":
+    st.header("Evolução Temporal por Estado")
 
-    estados = sorted(dados["state"].unique())
-    default_idx = 0
-    if "SP" in estados:
-        default_idx = estados.index("SP")
-    estado_sel = st.selectbox("Selecione o Estado", estados, index=default_idx)
+    estado_sel = st.selectbox("Selecione o Estado", sorted(dados["estado"].unique()), index=25)
+    df_estado = dados[dados["estado"] == estado_sel].sort_values("data")
 
-    df_estado = dados[dados["state"] == estado_sel].sort_values("date").copy()
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.fill_between(df_estado["data"], df_estado["casos"], alpha=0.4, color="skyblue", label="Casos")
+    ax.plot(df_estado["data"], df_estado["casos"], color="blue", linewidth=2)
+    ax.set_title(f"Evolução dos Casos — {estado_sel}")
+    ax.set_xlabel("Data")
+    ax.set_ylabel("Casos Confirmados")
+    st.pyplot(fig)
+    plt.close(fig)
 
-    st.subheader(f"Evolução Temporal — {estado_sel}")
+    st.markdown("### Óbitos Acumulados")
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.fill_between(df_estado["data"], df_estado["obitos"], alpha=0.4, color="salmon", label="Óbitos")
+    ax.plot(df_estado["data"], df_estado["obitos"], color="red", linewidth=2)
+    ax.set_xlabel("Data")
+    ax.set_ylabel("Óbitos")
+    st.pyplot(fig)
+    plt.close(fig)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(df_estado["date"], df_estado["confirmed"], label="Casos", linewidth=2)
-        ax.set_title(f"Evolução de Casos — {estado_sel}")
-        ax.set_xlabel("Data")
-        ax.set_ylabel("Casos Confirmados")
-        plt.xticks(rotation=45)
-        ax.grid(alpha=0.3)
-        st.pyplot(fig)
-        plt.close(fig)
+    st.success("📈 Gráficos de área facilitam a visualização de crescimento acumulado e ajudam a identificar picos ou desacelerações.")
 
-    with col2:
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(df_estado["date"], df_estado["deaths"], label="Mortes", linewidth=2)
-        ax.set_title(f"Evolução de Mortes — {estado_sel}")
-        ax.set_xlabel("Data")
-        ax.set_ylabel("Óbitos")
-        plt.xticks(rotation=45)
-        ax.grid(alpha=0.3)
-        st.pyplot(fig)
-        plt.close(fig)
-
-
-    df_estado["novos_casos"] = df_estado["confirmed"].diff().fillna(0)
-
-    df_estado["crescimento_%"] = df_estado["novos_casos"].pct_change().replace([np.inf, -np.inf], np.nan) * 100
-    media_crescimento = df_estado["crescimento_%"].replace([np.nan], 0).mean()
-
-    st.metric("Crescimento médio diário (%)", f"{media_crescimento:.2f}")
-    st.markdown(
-        f"O estado {estado_sel} apresentou crescimento médio diário de {media_crescimento:.2f}% "
-        "no período analisado (média simples sobre as variações diárias)."
-    )
-
-
+# =====================
+# AGRUPAMENTO K-MEANS
+# =====================
 elif pagina == "Agrupamento (K-Means)":
-    st.header("Agrupamento de Estados (K-Means)")
+    st.header("Agrupamento de Estados por Perfil de Casos e Óbitos")
 
-    agr = dados_atuais[["state", "confirmed", "deaths"]].dropna().copy()
-    st.markdown("Utilizamos K-Means para agrupar estados com perfis semelhantes em termos de casos e mortes.")
+    X = dados_atuais[["casos", "obitos"]]
+    Xs = StandardScaler().fit_transform(X)
+    k = st.slider("Número de grupos (k)", 2, 6, 3)
 
-    if len(agr) > 1:
-        X = agr[["confirmed", "deaths"]].values
-        scaler = StandardScaler()
-        Xs = scaler.fit_transform(X)
+    km = KMeans(n_clusters=k, random_state=42, n_init=10)
+    clusters = km.fit_predict(Xs)
+    dados_atuais["Cluster"] = clusters
 
-        k = st.slider("Número de clusters (k)", min_value=2, max_value=min(6, len(agr)), value=min(3, len(agr)))
-        km = KMeans(n_clusters=k, random_state=42, n_init=10)
-        clusters = km.fit_predict(Xs)
-        agr["cluster"] = clusters
+    st.markdown("### Distribuição dos Estados por Cluster")
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(
+        x="casos", y="obitos", hue="Cluster", data=dados_atuais, palette="Set2", s=100, ax=ax
+    )
+    for i, row in dados_atuais.iterrows():
+        ax.text(row["casos"], row["obitos"], row["estado"], fontsize=8)
+    ax.set_title("Clusters de Estados segundo Casos e Óbitos")
+    st.pyplot(fig)
+    plt.close(fig)
 
-        st.subheader("Tabela de Estados com Cluster")
-        st.dataframe(agr.sort_values("cluster").reset_index(drop=True))
-
-        fig, ax = plt.subplots(figsize=(8, 5))
-        for c in sorted(agr["cluster"].unique()):
-            grupo = agr[agr["cluster"] == c]
-            ax.scatter(grupo["confirmed"], grupo["deaths"], label=f"Cluster {c}", s=60)
-        ax.set_xlabel("Casos Confirmados")
-        ax.set_ylabel("Mortes")
-        ax.set_title("Agrupamento de Estados por Casos e Mortes")
-        ax.legend()
-        ax.grid(alpha=0.3)
-        st.pyplot(fig)
-        plt.close(fig)
-
-        st.markdown(
-            "Interpretação (exemplo):\n\n"
-            "- Cluster com menores valores: estados com baixa carga absoluta.\n"
-            "- Cluster intermediário: carga média.\n"
-            "- Cluster com maiores valores: grandes centros com muitos casos e óbitos (ex.: SP, RJ).\n\n"
-            "A interpretação deve considerar população, testagem e reporting."
-        )
-    else:
-        st.warning("Dados insuficientes para realizar o agrupamento.")
-
-
-elif pagina == "Aprendizagem Supervisionada":
-    st.header("Aprendizagem Supervisionada — Regressão (prever óbitos)")
-
-    st.markdown(
-        "Aqui usamos os registros agregados por estado (último registro) para treinar um modelo de regressão "
-        "que tenta prever o número de óbitos (`deaths`) a partir de casos confirmados (`confirmed`). "
-        "Nota: é uma análise exploratória simples — em cenários reais seria necessário enriquecer com variáveis demográficas, tempo desde o surto, etc."
+    st.markdown("### Média de Indicadores por Cluster")
+    st.dataframe(
+        dados_atuais.groupby("Cluster")[["casos", "obitos", "letalidade"]].mean().round(2)
     )
 
-    agr = dados_atuais[["state", "confirmed", "deaths"]].dropna().copy()
-    X = agr[["confirmed"]].values  
-    y = agr["deaths"].values    
+    st.info("💡 Estados com comportamento semelhante (em escala) ficam no mesmo grupo, facilitando comparações regionais.")
 
+# =====================
+# MODELAGEM SUPERVISIONADA
+# =====================
+elif pagina == "Modelagem Supervisionada":
+    st.header("Predição de Óbitos a partir de Casos Confirmados")
 
-    modelo_selecionado = st.selectbox("Modelo", ["Regressão Linear", "Random Forest (regressor)"])
-    test_size = st.slider("Proporção de teste (%)", min_value=10, max_value=40, value=20, step=5)
-    random_state = 42
+    st.markdown("Nesta análise simples, usamos **Regressão Linear** para estimar o número de óbitos com base na quantidade de casos confirmados por estado.")
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size/100.0, random_state=random_state)
+    X = dados_atuais[["casos"]].values
+    y = dados_atuais["obitos"].values
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    if modelo_selecionado == "Regressão Linear":
-        model = LinearRegression()
-    else:
-        model = RandomForestRegressor(n_estimators=200, random_state=random_state)
-
+    model = LinearRegression()
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 
-
     r2 = r2_score(y_test, y_pred)
     mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = np.sqrt(mse)
+    rmse = mean_squared_error(y_test, y_pred, squared=False)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("R²", f"{r2:.3f}")
-    c2.metric("MAE", f"{mae:.2f}")
-    c3.metric("RMSE", f"{rmse:.2f}")
-    c4.metric("Samples teste", f"{len(y_test)}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("R²", f"{r2:.2f}")
+    c2.metric("MAE", f"{mae:.1f}")
+    c3.metric("RMSE", f"{rmse:.1f}")
 
-    st.subheader("Gráfico: Valores Reais vs Preditos (conjunto de teste)")
     fig, ax = plt.subplots(figsize=(7, 5))
-    ax.scatter(y_test, y_pred, s=60)
-    lims = [min(min(y_test), min(y_pred)), max(max(y_test), max(y_pred))]
-    ax.plot(lims, lims, linestyle="--", color="gray") 
+    sns.regplot(x=y_test, y=y_pred, line_kws={"color": "gray"}, scatter_kws={"s": 80})
     ax.set_xlabel("Óbitos Reais")
     ax.set_ylabel("Óbitos Preditos")
-    ax.set_title(f"Real x Predito — {modelo_selecionado}")
-    ax.grid(alpha=0.3)
+    ax.set_title("Desempenho da Regressão Linear")
     st.pyplot(fig)
     plt.close(fig)
 
-    st.markdown(
-        "Observações:\n\n"
-        "- O modelo é simples e serve como demonstração de pipeline de modelagem (treino/teste, métricas e interpretação).\n"
-        "- Para melhorar: incluir features adicionais (população, testes por 100k, idade média, tempo desde primeiro caso), "
-        "fazer engenharia de features, validação cruzada e análise de resíduos."
-    )
+    st.success("✅ Relação linear forte indica que o número de casos é um bom preditor do total de óbitos (tendência esperada).")
 
-
+# =====================
+# RODAPÉ
+# =====================
 st.markdown("---")
-st.caption("Projeto Acadêmico — SENAC | 2025")
+st.caption("Projeto Acadêmico — Ciência de Dados em Saúde | 2025")
